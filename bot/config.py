@@ -23,9 +23,9 @@ def _get_required(key: str) -> str:
 TELEGRAM_BOT_TOKEN: str = _get_required("TELEGRAM_BOT_TOKEN")
 BOSS_USER_ID: int = int(_get_required("BOSS_USER_ID"))
 
-# ── Gemini (Google AI) ────────────────────────────────────
-GEMINI_API_KEY: str = _get_required("GEMINI_API_KEY")
-GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+# ── Groq (IA ultrarrápida y gratuita) ────────────────────
+GROQ_API_KEY: str = _get_required("GROQ_API_KEY")
+GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 # ── Notion ────────────────────────────────────────────────
 NOTION_TOKEN: str = _get_required("NOTION_TOKEN")
