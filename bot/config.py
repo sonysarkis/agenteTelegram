@@ -25,7 +25,7 @@ BOSS_USER_ID: int = int(_get_required("BOSS_USER_ID"))
 
 # ── Gemini (Google AI) ────────────────────────────────────
 GEMINI_API_KEY: str = _get_required("GEMINI_API_KEY")
-GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 
 # ── Notion ────────────────────────────────────────────────
 NOTION_TOKEN: str = _get_required("NOTION_TOKEN")

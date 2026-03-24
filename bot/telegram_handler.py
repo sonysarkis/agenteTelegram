@@ -17,13 +17,34 @@ PRIORITY_DISPLAY = {
 }
 
 
-async def handle_message(update_data: dict, bot) -> None:
+import httpx
+from bot.config import TELEGRAM_BOT_TOKEN
+
+
+def _send_message(chat_id: int, text: str, reply_to_message_id: int = None, parse_mode: str = None) -> None:
+    """Envía un mensaje a Telegram de manera síncrona usando la API HTTP."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+    }
+    if reply_to_message_id:
+        payload["reply_to_message_id"] = reply_to_message_id
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+
+    try:
+        httpx.post(url, json=payload, timeout=10.0)
+    except Exception as e:
+        print(f"❌ Error enviando mensaje a Telegram: {e}")
+
+
+def handle_message(update_data: dict) -> None:
     """
-    Procesa un update de Telegram.
+    Procesa un update de Telegram de forma síncrona.
     
     Args:
-        update_data: dict con el update de Telegram
-        bot: instancia del bot de Telegram para enviar respuestas
+        update_data: dict con el update de Telegram JSON crudo
     """
     try:
         # Extraer información del update
@@ -48,11 +69,10 @@ async def handle_message(update_data: dict, bot) -> None:
 
         # ── Filtro 3: Ignorar comandos del bot ──────────────────
         if text.startswith("/"):
-            # Manejar comandos especiales
             if text.strip() == "/estado":
-                await _send_status(bot, chat_id)
-            elif text.strip() == "/ayuda" or text.strip() == "/help":
-                await _send_help(bot, chat_id)
+                _send_status(chat_id)
+            elif text.strip() in ("/ayuda", "/help"):
+                _send_help(chat_id)
             return
 
         # ── Procesar con IA ─────────────────────────────────────
@@ -62,9 +82,9 @@ async def handle_message(update_data: dict, bot) -> None:
 
         if task_data is None:
             print("⚠️ No se pudo procesar el mensaje con Gemini")
-            await bot.send_message(
+            _send_message(
                 chat_id=chat_id,
-                text="⚠️ No pude procesar ese mensaje. Intenta de nuevo.",
+                text="⚠️ El bot está saturado (límite de IA alcanzado) o hubo un error. Intenta en unos minutos.",
                 reply_to_message_id=message_id,
             )
             return
@@ -91,14 +111,14 @@ async def handle_message(update_data: dict, bot) -> None:
                 f"📊 Estado: Por hacer ⏳"
             )
 
-            await bot.send_message(
+            _send_message(
                 chat_id=chat_id,
                 text=confirmation,
                 reply_to_message_id=message_id,
                 parse_mode="Markdown",
             )
         else:
-            await bot.send_message(
+            _send_message(
                 chat_id=chat_id,
                 text="❌ Hubo un error al guardar la tarea en Notion. Revisa los logs.",
                 reply_to_message_id=message_id,
@@ -109,7 +129,7 @@ async def handle_message(update_data: dict, bot) -> None:
         traceback.print_exc()
 
 
-async def _send_help(bot, chat_id: int) -> None:
+def _send_help(chat_id: int) -> None:
     """Envía el mensaje de ayuda."""
     help_text = (
         "🤖 **Agente PM — Ayuda**\n\n"
@@ -126,10 +146,10 @@ async def _send_help(bot, chat_id: int) -> None:
         "4. Confirmo aquí con los detalles\n\n"
         "💡 Ignoro mensajes casuales como \"ok\", \"gracias\", etc."
     )
-    await bot.send_message(chat_id=chat_id, text=help_text, parse_mode="Markdown")
+    _send_message(chat_id=chat_id, text=help_text, parse_mode="Markdown")
 
 
-async def _send_status(bot, chat_id: int) -> None:
+def _send_status(chat_id: int) -> None:
     """Envía el estado actual del bot."""
     from bot.notion_manager import test_connection
 
@@ -142,4 +162,5 @@ async def _send_status(bot, chat_id: int) -> None:
         "🧠 Gemini: ✅ Disponible\n"
         "📡 Telegram: ✅ Activo\n"
     )
-    await bot.send_message(chat_id=chat_id, text=status_text, parse_mode="Markdown")
+    _send_message(chat_id=chat_id, text=status_text, parse_mode="Markdown")
+

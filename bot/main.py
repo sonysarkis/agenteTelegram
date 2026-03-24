@@ -8,18 +8,16 @@ Este archivo:
 4. Expone /health para monitoreo
 """
 
-import asyncio
 import traceback
+import httpx
 
 from flask import Flask, request, jsonify
-from telegram import Bot
 
 from bot.config import TELEGRAM_BOT_TOKEN, WEBHOOK_URL, PORT
 from bot.telegram_handler import handle_message
 
-# ── Inicializar Flask y Bot ───────────────────────────────
+# ── Inicializar Flask ─────────────────────────────────────────
 app = Flask(__name__)
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
 
 # ── Health Check ──────────────────────────────────────────
@@ -47,8 +45,8 @@ def telegram_webhook():
     try:
         update_data = request.get_json(force=True)
 
-        # Procesar el mensaje de forma asíncrona
-        asyncio.run(handle_message(update_data, bot))
+        # Procesar el mensaje de forma síncrona
+        handle_message(update_data)
 
         return jsonify({"ok": True}), 200
 
@@ -61,16 +59,19 @@ def telegram_webhook():
 
 # ── Registrar Webhook con Telegram ───────────────────────
 def setup_webhook():
-    """Registra la URL del webhook en Telegram."""
+    """Registra la URL del webhook en Telegram utilizando HTTPX."""
     webhook_url = f"{WEBHOOK_URL}/webhook"
+    api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook"
+    
     try:
-        result = asyncio.run(bot.set_webhook(url=webhook_url))
-        if result:
+        response = httpx.post(api_url, data={"url": webhook_url}, timeout=10.0)
+        data = response.json()
+        if response.status_code == 200 and data.get("ok"):
             print(f"✅ Webhook registrado: {webhook_url}")
         else:
-            print(f"❌ Error registrando webhook")
+            print(f"❌ Error registrando webhook: {data}")
     except Exception as e:
-        print(f"❌ Error configurando webhook: {e}")
+        print(f"❌ Excepción configurando webhook: {e}")
         traceback.print_exc()
 
 
