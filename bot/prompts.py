@@ -1,15 +1,19 @@
 """
-Prompts del sistema para Gemini.
+Prompts del sistema para la IA.
 Define cómo la IA debe interpretar los mensajes del jefe.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+# Zona horaria del jefe (UTC-4 = Eastern / Venezuela / Rep. Dominicana, etc.)
+BOSS_TZ = timezone(timedelta(hours=-4))
 
 
 def get_extraction_prompt() -> str:
     """Retorna el prompt de sistema para extracción de tareas."""
-    today = datetime.now().strftime("%Y-%m-%d")
-    day_name = datetime.now().strftime("%A")
+    now = datetime.now(BOSS_TZ)
+    today = now.strftime("%Y-%m-%d")
+    day_name = now.strftime("%A")
 
     return f"""Eres un asistente de productividad experto en gestión de proyectos.
 Tu trabajo es analizar mensajes de un jefe enviados en un chat de Telegram y extraer tareas accionables.

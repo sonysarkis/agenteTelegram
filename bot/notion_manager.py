@@ -4,7 +4,7 @@ Crea páginas en una base de datos de Notion con las tareas extraídas.
 """
 
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 import httpx
 from bot.config import NOTION_TOKEN, NOTION_DATABASE_ID
@@ -64,10 +64,10 @@ def create_task(task_data: dict, original_message: str, boss_name: str = "Jefe")
                     "name": f"{PRIORITY_EMOJI.get(task_data.get('priority', 'Media'), '🟡')} {task_data.get('priority', 'Media')}"
                 }
             },
-            # Fecha de registro
+            # Fecha de registro (zona horaria del jefe: UTC-4)
             "Fecha de registro": {
                 "date": {
-                    "start": datetime.now().strftime("%Y-%m-%d")
+                    "start": datetime.now(timezone(timedelta(hours=-4))).strftime("%Y-%m-%d")
                 }
             },
             # Asignado por
