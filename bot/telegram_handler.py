@@ -1,12 +1,12 @@
 """
 Manejo de mensajes de Telegram.
-Filtra mensajes, procesa con IA, y registra tareas en Notion.
+Filtra mensajes, procesa con IA, y registra tareas en Jira.
 """
 
 import traceback
-from bot.config import BOSS_USER_ID
+from bot.config import AUTHORIZED_USER_IDS, TELEGRAM_BOT_TOKEN, JIRA_URL
 from bot.ai_extractor import extract_task
-from bot.notion_manager import create_task
+from bot.jira_manager import create_task
 
 
 # Emojis para las prioridades en el mensaje de confirmación
@@ -18,7 +18,6 @@ PRIORITY_DISPLAY = {
 
 
 import httpx
-from bot.config import TELEGRAM_BOT_TOKEN
 
 
 def _send_message(chat_id: int, text: str, reply_to_message_id: int = None, parse_mode: str = None) -> None:
@@ -63,8 +62,8 @@ def handle_message(update_data: dict) -> None:
         if not text:
             return  # Ignorar: fotos sin caption, stickers, etc.
 
-        # ── Filtro 2: Solo procesar mensajes del jefe ───────────
-        if user_id != BOSS_USER_ID:
+        # ── Filtro 2: Solo procesar mensajes de usuarios autorizados ──
+        if user_id not in AUTHORIZED_USER_IDS:
             return  # Ignorar mensajes de otros usuarios
 
         # ── Filtro 3: Ignorar comandos del bot ──────────────────
@@ -76,12 +75,12 @@ def handle_message(update_data: dict) -> None:
             return
 
         # ── Procesar con IA ─────────────────────────────────────
-        print(f"📨 Mensaje del jefe ({user_name}): {text[:100]}...")
+        print(f"📨 Mensaje de {user_name} (ID: {user_id}): {text[:100]}...")
 
         task_data = extract_task(text)
 
         if task_data is None:
-            print("⚠️ No se pudo procesar el mensaje con Gemini")
+            print("⚠️ No se pudo procesar el mensaje con la IA")
             _send_message(
                 chat_id=chat_id,
                 text="⚠️ El bot está saturado (límite de IA alcanzado) o hubo un error. Intenta en unos minutos.",
@@ -94,17 +93,21 @@ def handle_message(update_data: dict) -> None:
             print(f"💬 Mensaje ignorado (no es tarea): {text[:50]}...")
             return  # No responder a mensajes casuales
 
-        # ── Registrar en Notion ─────────────────────────────────
-        notion_result = create_task(task_data, text, user_name)
+        # ── Registrar en Jira ──────────────────────────────────
+        jira_result = create_task(task_data, text, user_name)
 
-        if notion_result:
+        if jira_result:
             # Construir mensaje de confirmación
             priority_display = PRIORITY_DISPLAY.get(task_data.get("priority", "Media"), "🟡 Media")
             deadline = task_data.get("deadline", "Sin fecha definida")
             deadline_display = f"📅 {deadline}" if deadline != "Sin fecha definida" else "📅 Sin fecha definida"
+            
+            jira_key = jira_result.get("key", "N/A")
+            jira_link = f"{JIRA_URL.rstrip('/')}/browse/{jira_key}"
 
             confirmation = (
-                f"✅ **Tarea registrada**\n\n"
+                f"✅ **Tarea registrada en Jira**\n\n"
+                f"🆔 **[{jira_key}]({jira_link})**\n"
                 f"📌 **{task_data['task']}**\n"
                 f"{deadline_display}\n"
                 f"🏷️ Prioridad: {priority_display}\n"
@@ -120,7 +123,7 @@ def handle_message(update_data: dict) -> None:
         else:
             _send_message(
                 chat_id=chat_id,
-                text="❌ Hubo un error al guardar la tarea en Notion. Revisa los logs.",
+                text="❌ Hubo un error al guardar la tarea en Jira. Revisa los logs.",
                 reply_to_message_id=message_id,
             )
 
@@ -134,16 +137,16 @@ def _send_help(chat_id: int) -> None:
     help_text = (
         "🤖 **Agente PM — Ayuda**\n\n"
         "Soy tu asistente de gestión de tareas. "
-        "Cuando tu jefe envíe un mensaje con una indicación, "
-        "lo analizo automáticamente y lo registro en Notion.\n\n"
+        "Cuando un usuario autorizado envíe un mensaje con una indicación, "
+        "lo analizo automáticamente y lo registro en Jira.\n\n"
         "**Comandos disponibles:**\n"
         "/ayuda — Muestra este mensaje\n"
         "/estado — Verifica el estado del bot\n\n"
         "**¿Cómo funciono?**\n"
-        "1. Tu jefe escribe una indicación en este grupo\n"
+        "1. Escribes una indicación en este grupo\n"
         "2. Yo la analizo con IA para extraer la tarea\n"
-        "3. La registro automáticamente en Notion\n"
-        "4. Confirmo aquí con los detalles\n\n"
+        "3. La registro automáticamente en Jira\n"
+        "4. Confirmo aquí con el link a Jira\n\n"
         "💡 Ignoro mensajes casuales como \"ok\", \"gracias\", etc."
     )
     _send_message(chat_id=chat_id, text=help_text, parse_mode="Markdown")
@@ -151,15 +154,15 @@ def _send_help(chat_id: int) -> None:
 
 def _send_status(chat_id: int) -> None:
     """Envía el estado actual del bot."""
-    from bot.notion_manager import test_connection
+    from bot.jira_manager import test_connection
 
-    notion_ok = test_connection()
-    notion_status = "✅ Conectado" if notion_ok else "❌ Error de conexión"
+    jira_ok = test_connection()
+    jira_status = "✅ Conectado" if jira_ok else "❌ Error de conexión"
 
     status_text = (
         "🤖 **Estado del Agente PM**\n\n"
-        f"🔗 Notion: {notion_status}\n"
-        "🧠 Gemini: ✅ Disponible\n"
+        f"🔗 Jira: {jira_status}\n"
+        "🧠 Gemini/Llama: ✅ Disponible\n"
         "📡 Telegram: ✅ Activo\n"
     )
     _send_message(chat_id=chat_id, text=status_text, parse_mode="Markdown")

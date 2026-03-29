@@ -12,13 +12,17 @@ services:
         value: "5000"
       - key: TELEGRAM_BOT_TOKEN
         sync: false
-      - key: BOSS_USER_ID
+      - key: AUTHORIZED_USER_IDS
         sync: false
-      - key: GEMINI_API_KEY
+      - key: GROQ_API_KEY
         sync: false
-      - key: NOTION_TOKEN
+      - key: JIRA_URL
         sync: false
-      - key: NOTION_DATABASE_ID
+      - key: JIRA_EMAIL
+        sync: false
+      - key: JIRA_API_TOKEN
+        sync: false
+      - key: JIRA_PROJECT_KEY
         sync: false
       - key: WEBHOOK_URL
         sync: false
