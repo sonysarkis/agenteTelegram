@@ -1,11 +1,34 @@
-"""
-Manejo de mensajes de Telegram.
-Filtra mensajes, procesa con IA, y registra tareas en Jira.
-"""
-
 import traceback
+import httpx
 from bot.config import AUTHORIZED_USER_IDS, TELEGRAM_BOT_TOKEN, JIRA_URL
 from bot.ai_extractor import extract_task, transcribe_audio
+from bot.jira_manager import create_task
+
+
+# Emojis para las prioridades en el mensaje de confirmación
+PRIORITY_DISPLAY = {
+    "Alta": "🔴 Alta",
+    "Media": "🟡 Media",
+    "Baja": "🟢 Baja",
+}
+
+
+def _send_message(chat_id: int, text: str, reply_to_message_id: int = None, parse_mode: str = None) -> None:
+    """Envía un mensaje a Telegram de manera síncrona usando la API HTTP."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+    }
+    if reply_to_message_id:
+        payload["reply_to_message_id"] = reply_to_message_id
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+
+    try:
+        httpx.post(url, json=payload, timeout=10.0)
+    except Exception as e:
+        print(f"❌ Error enviando mensaje a Telegram: {e}")
 
 
 def _download_telegram_file(file_id: str) -> bytes | None:
