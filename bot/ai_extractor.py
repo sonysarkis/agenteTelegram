@@ -66,3 +66,30 @@ def extract_task(message_text: str) -> dict | None:
         print(f"❌ Error llamando a Groq: {e}")
         traceback.print_exc()
         return None
+
+
+def transcribe_audio(audio_file: bytes, filename: str) -> str | None:
+    """
+    Usa el modelo Whisper-3 de Groq para transcribir audio a texto.
+    
+    Args:
+        audio_file: contenido binario del archivo
+        filename: nombre del archivo para identificar la extensión
+        
+    Returns:
+        str con el texto transcrito
+        None si hubo error
+    """
+    try:
+        # Groq espera un objeto tipo 'file', pasamos una tupla (filename, content)
+        transcription = client.audio.transcriptions.create(
+            file=(filename, audio_file),
+            model="whisper-large-v3",
+            response_format="json",
+            temperature=0.0,  # Máxima precisión
+        )
+        return transcription.text
+    except Exception as e:
+        print(f"❌ Error transcribiendo audio con Groq: {e}")
+        traceback.print_exc()
+        return None

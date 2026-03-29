@@ -5,37 +5,33 @@ Filtra mensajes, procesa con IA, y registra tareas en Jira.
 
 import traceback
 from bot.config import AUTHORIZED_USER_IDS, TELEGRAM_BOT_TOKEN, JIRA_URL
-from bot.ai_extractor import extract_task
-from bot.jira_manager import create_task
+from bot.ai_extractor import extract_task, transcribe_audio
 
 
-# Emojis para las prioridades en el mensaje de confirmación
-PRIORITY_DISPLAY = {
-    "Alta": "🔴 Alta",
-    "Media": "🟡 Media",
-    "Baja": "🟢 Baja",
-}
-
-
-import httpx
-
-
-def _send_message(chat_id: int, text: str, reply_to_message_id: int = None, parse_mode: str = None) -> None:
-    """Envía un mensaje a Telegram de manera síncrona usando la API HTTP."""
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-    }
-    if reply_to_message_id:
-        payload["reply_to_message_id"] = reply_to_message_id
-    if parse_mode:
-        payload["parse_mode"] = parse_mode
-
+def _download_telegram_file(file_id: str) -> bytes | None:
+    """Descarga un archivo desde los servidores de Telegram."""
     try:
-        httpx.post(url, json=payload, timeout=10.0)
+        # 1. Obtener la ruta del archivo
+        get_file_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getFile"
+        resp = httpx.get(get_file_url, params={"file_id": file_id}, timeout=10.0)
+        file_data = resp.json()
+        
+        if not file_data.get("ok"):
+            print(f"❌ Error en getFile: {file_data}")
+            return None
+            
+        file_path = file_data["result"]["file_path"]
+        
+        # 2. Descargar el archivo binario
+        download_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+        file_resp = httpx.get(download_url, timeout=30.0)
+        
+        if file_resp.status_code == 200:
+            return file_resp.content
+        return None
     except Exception as e:
-        print(f"❌ Error enviando mensaje a Telegram: {e}")
+        print(f"❌ Error descargando archivo de Telegram: {e}")
+        return None
 
 
 def handle_message(update_data: dict) -> None:
@@ -58,15 +54,42 @@ def handle_message(update_data: dict) -> None:
         user_name = message.get("from", {}).get("first_name", "Desconocido")
         message_id = message.get("message_id")
 
-        # ── Filtro 1: Solo procesar mensajes de texto ───────────
-        if not text:
-            return  # Ignorar: fotos sin caption, stickers, etc.
-
-        # ── Filtro 2: Solo procesar mensajes de usuarios autorizados ──
+        # ── Filtro 1: Autorización ──────────────────────────────
         if user_id not in AUTHORIZED_USER_IDS:
             return  # Ignorar mensajes de otros usuarios
 
-        # ── Filtro 3: Ignorar comandos del bot ──────────────────
+        # ── Filtro 2: Detección de Audio/Voz ─────────────────────
+        voice = message.get("voice")
+        audio = message.get("audio")
+        is_audio = False
+        transcription = ""
+
+        if not text and (voice or audio):
+            is_audio = True
+            file_id = voice["file_id"] if voice else audio["file_id"]
+            mime_type = voice.get("mime_type", "audio/ogg") if voice else audio.get("mime_type", "audio/mpeg")
+            # Determinar extensión básica
+            ext = "ogg" if "ogg" in mime_type else "mp3"
+            
+            print(f"🎙️ Audio detectado de {user_name}. Transcribiendo...")
+            
+            # (Opcional) Notificar que se está procesando
+            # _send_message(chat_id, "🎙️ Transcribiendo audio...", reply_to_message_id=message_id)
+
+            audio_content = _download_telegram_file(file_id)
+            if audio_content:
+                transcription = transcribe_audio(audio_content, f"audio.{ext}")
+                text = transcription
+            
+            if not text:
+                _send_message(chat_id, "❌ No pude entender el audio o hubo un error en la transcripción.", reply_to_message_id=message_id)
+                return
+
+        # ── Filtro 3: Ignorar si no hay texto ni audio válido ───
+        if not text:
+            return 
+
+        # ── Filtro 4: Ignorar comandos del bot ──────────────────
         if text.startswith("/"):
             if text.strip() == "/estado":
                 _send_status(chat_id)
@@ -75,7 +98,7 @@ def handle_message(update_data: dict) -> None:
             return
 
         # ── Procesar con IA ─────────────────────────────────────
-        print(f"📨 Mensaje de {user_name} (ID: {user_id}): {text[:100]}...")
+        print(f"📨 Procesando mensaje de {user_name}: {text[:100]}...")
 
         task_data = extract_task(text)
 
@@ -83,18 +106,21 @@ def handle_message(update_data: dict) -> None:
             print("⚠️ No se pudo procesar el mensaje con la IA")
             _send_message(
                 chat_id=chat_id,
-                text="⚠️ El bot está saturado (límite de IA alcanzado) o hubo un error. Intenta en unos minutos.",
+                text="⚠️ El bot está saturado o hubo un error procesando la tarea. Intenta en unos minutos.",
                 reply_to_message_id=message_id,
             )
             return
 
-        # ── Filtro 4: ¿Es realmente una tarea? ─────────────────
+        # ── Filtro 5: ¿Es realmente una tarea? ─────────────────
         if not task_data.get("is_task", False):
-            print(f"💬 Mensaje ignorado (no es tarea): {text[:50]}...")
-            return  # No responder a mensajes casuales
+            if is_audio:
+                # Si era audio y no es tarea, al menos mostramos la transcripción si es amigable
+                print(f"💬 Audio ignorado (no es tarea): {text[:50]}...")
+            return 
 
         # ── Registrar en Jira ──────────────────────────────────
-        jira_result = create_task(task_data, text, user_name)
+        original_to_save = f"[Transcripción Audio]: {text}" if is_audio else text
+        jira_result = create_task(task_data, original_to_save, user_name)
 
         if jira_result:
             # Construir mensaje de confirmación
@@ -105,10 +131,14 @@ def handle_message(update_data: dict) -> None:
             jira_key = jira_result.get("key", "N/A")
             jira_link = f"{JIRA_URL.rstrip('/')}/browse/{jira_key}"
 
+            header = "🎙️ **Audio transcrito y registrado**" if is_audio else "✅ **Tarea registrada en Jira**"
+            transcription_block = f"\n📖 *Texto detectado:* \"{text}\"\n" if is_audio else ""
+
             confirmation = (
-                f"✅ **Tarea registrada en Jira**\n\n"
+                f"{header}\n\n"
                 f"🆔 **[{jira_key}]({jira_link})**\n"
                 f"📌 **{task_data['task']}**\n"
+                f"{transcription_block}"
                 f"{deadline_display}\n"
                 f"🏷️ Prioridad: {priority_display}\n"
                 f"📊 Estado: Por hacer ⏳"
@@ -123,7 +153,7 @@ def handle_message(update_data: dict) -> None:
         else:
             _send_message(
                 chat_id=chat_id,
-                text="❌ Hubo un error al guardar la tarea en Jira. Revisa los logs.",
+                text="❌ Hubo un error al guardar en Jira. Revisa los logs.",
                 reply_to_message_id=message_id,
             )
 
@@ -137,16 +167,15 @@ def _send_help(chat_id: int) -> None:
     help_text = (
         "🤖 **Agente PM — Ayuda**\n\n"
         "Soy tu asistente de gestión de tareas. "
-        "Cuando un usuario autorizado envíe un mensaje con una indicación, "
-        "lo analizo automáticamente y lo registro en Jira.\n\n"
+        "Cuando un usuario autorizado envía una indicación (texto o voz), "
+        "la analizo y la registro en Jira.\n\n"
         "**Comandos disponibles:**\n"
         "/ayuda — Muestra este mensaje\n"
         "/estado — Verifica el estado del bot\n\n"
         "**¿Cómo funciono?**\n"
-        "1. Escribes una indicación en este grupo\n"
-        "2. Yo la analizo con IA para extraer la tarea\n"
-        "3. La registro automáticamente en Jira\n"
-        "4. Confirmo aquí con el link a Jira\n\n"
+        "1. Escribes o mandas un audio con una indicación\n"
+        "2. Si es audio, lo transcribo automáticamente\n"
+        "3. Registro la tarea en Jira y te mando el link\n\n"
         "💡 Ignoro mensajes casuales como \"ok\", \"gracias\", etc."
     )
     _send_message(chat_id=chat_id, text=help_text, parse_mode="Markdown")
@@ -162,7 +191,7 @@ def _send_status(chat_id: int) -> None:
     status_text = (
         "🤖 **Estado del Agente PM**\n\n"
         f"🔗 Jira: {jira_status}\n"
-        "🧠 Gemini/Llama: ✅ Disponible\n"
+        "🧠 Groq/Whisper: ✅ Activo\n"
         "📡 Telegram: ✅ Activo\n"
     )
     _send_message(chat_id=chat_id, text=status_text, parse_mode="Markdown")
