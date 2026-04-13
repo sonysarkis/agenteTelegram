@@ -21,6 +21,13 @@ from bot.reminder_scheduler import init_scheduler
 # ── Inicializar Flask ─────────────────────────────────────────
 app = Flask(__name__)
 
+# Cache de update_ids ya procesados.
+# Telegram reintenta el webhook si no recibe 200 en < 5 s, lo que
+# causaría registros duplicados. Guardamos los últimos 200 IDs y
+# descartamos cualquier reintento con el mismo update_id.
+_processed_update_ids: set[int] = set()
+_MAX_STORED_IDS = 200
+
 
 # ── Health Check ──────────────────────────────────────────
 @app.route("/", methods=["GET"])
@@ -47,7 +54,17 @@ def telegram_webhook():
     try:
         update_data = request.get_json(force=True)
 
-        # Procesar el mensaje de forma síncrona
+        # ── Deduplicación: ignorar reintentos de Telegram ──────
+        update_id = update_data.get("update_id")
+        if update_id is not None:
+            if update_id in _processed_update_ids:
+                print(f"⚠️ Webhook duplicado ignorado (update_id={update_id})")
+                return jsonify({"ok": True}), 200
+            _processed_update_ids.add(update_id)
+            # Evitar crecimiento ilimitado: eliminar el ID más bajo cuando supera el límite
+            if len(_processed_update_ids) > _MAX_STORED_IDS:
+                _processed_update_ids.discard(min(_processed_update_ids))
+
         handle_message(update_data)
 
         return jsonify({"ok": True}), 200
