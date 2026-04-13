@@ -30,8 +30,7 @@ Bot de Telegram que actúa como un Project Manager virtual. Lee mensajes en un g
 
 1. Busca **@userinfobot** en Telegram
 2. Envía un mensaje y obtén tu **ID numérico** (ej: `12345678`).
-3. Dile a tu jefe que haga lo mismo o reenvía un mensaje suyo a ese bot.
-4. Anota los IDs separados por coma — van en `AUTHORIZED_USER_IDS` (ej: `12345678,87654321`).
+3. Anota los IDs separados por coma — van en `AUTHORIZED_USER_IDS` (ej: `12345678,87654321`).
 
 ### Paso 3 — Obtener API Key de Groq
 
@@ -82,19 +81,3 @@ Bot de Telegram que actúa como un Project Manager virtual. Lee mensajes en un g
 
 ---
 
-## 📁 Estructura del Proyecto
-
-```
-agenteTelegram/
-├── bot/
-│   ├── main.py                  # Flask app + webhook
-│   ├── config.py                # Variables de entorno
-│   ├── telegram_handler.py      # Procesamiento de mensajes
-│   ├── ai_extractor.py          # Integración con Groq (Llama 3)
-│   ├── jira_manager.py          # Integración con Jira API v3
-│   └── prompts.py               # Prompts para la IA
-├── requirements.txt
-├── render.yaml                  # Config de Render.com
-├── .env.example                 # Template de credenciales
-└── README.md
-```
