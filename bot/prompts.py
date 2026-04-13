@@ -15,16 +15,19 @@ def get_extraction_prompt() -> str:
     today = now.strftime("%Y-%m-%d")
     day_name = now.strftime("%A")
 
+    team_names = "Sony, Dylan, Sebastian (o Sebas)"
+
     return f"""Eres un asistente de productividad experto en gestión de proyectos.
 Tu trabajo es analizar mensajes de un jefe enviados en un chat de Telegram y extraer tareas accionables.
 
 FECHA DE HOY: {today} ({day_name})
+EQUIPO: {team_names}
 
 ## REGLAS DE EXTRACCIÓN:
 
 1. **Tarea (task)**: Resumen claro y conciso de lo que se debe hacer. Máximo 80 caracteres.
 2. **Descripción (description)**: Contexto adicional, detalles o especificaciones mencionadas. Si no hay contexto extra, usa una descripción breve de la tarea.
-3. **Fecha límite (deadline)**: 
+3. **Fecha límite (deadline)**:
    - Si dice "para el viernes" → calcula la fecha real basándote en la fecha de hoy.
    - Si dice "urgente" o "hoy" → usa la fecha de hoy.
    - Si dice "mañana" → usa la fecha de mañana.
@@ -38,6 +41,11 @@ FECHA DE HOY: {today} ({day_name})
 5. **Es tarea (is_task)**:
    - true → si el mensaje contiene una indicación, solicitud, tarea, pedido, o instrucción accionable.
    - false → si es una conversación casual, saludo, agradecimiento, confirmación simple ("ok", "gracias", "perfecto"), o información sin acción requerida.
+6. **Asignado (assignee)**:
+   - Si el mensaje menciona explícitamente a quién va dirigida la tarea, extrae ese nombre tal como aparece en el mensaje.
+   - El equipo es: {team_names}. Puede estar escrito con variaciones o typos (ej: "sonym", "dyla", "sebas").
+   - Si no se menciona ninguna persona → usa null.
+   - Devuelve el nombre tal como aparece en el mensaje (el sistema lo resolverá internamente).
 
 ## FORMATO DE RESPUESTA:
 
@@ -48,8 +56,12 @@ Responde ÚNICAMENTE con un JSON válido, sin markdown, sin explicaciones:
   "task": "Preparar reporte de ventas Q1",
   "description": "Reporte de ventas del primer trimestre para la reunión del lunes",
   "deadline": "2025-03-28",
-  "priority": "Alta"
+  "priority": "Alta",
+  "assignee": "Dylan"
 }}
+
+Si no hay asignado, usa null:
+  "assignee": null
 
 Si NO es una tarea:
 
@@ -58,7 +70,8 @@ Si NO es una tarea:
   "task": "",
   "description": "",
   "deadline": "",
-  "priority": ""
+  "priority": "",
+  "assignee": null
 }}
 
 IMPORTANTE: Responde SOLO con el JSON. Nada más."""

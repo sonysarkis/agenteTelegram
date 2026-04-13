@@ -3,6 +3,8 @@ import httpx
 from bot.config import AUTHORIZED_USER_IDS, TELEGRAM_BOT_TOKEN, JIRA_URL
 from bot.ai_extractor import extract_task, transcribe_audio
 from bot.jira_manager import create_task
+from bot.jira_users import resolve_assignee
+from bot.reminder_scheduler import schedule_task_reminders
 
 
 # Emojis para las prioridades en el mensaje de confirmación
@@ -141,21 +143,29 @@ def handle_message(update_data: dict) -> None:
                 print(f"💬 Audio ignorado (no es tarea): {text[:50]}...")
             return 
 
+        # ── Resolver asignado ──────────────────────────────────
+        raw_assignee = task_data.get("assignee")  # nombre tal como lo devuelve la IA
+        assignee_resolved = resolve_assignee(raw_assignee) if raw_assignee else None
+        # assignee_resolved es (nombre_canónico, accountId) o None
+        assignee_name = assignee_resolved[0] if assignee_resolved else None
+        assignee_account_id = assignee_resolved[1] if assignee_resolved else None
+
         # ── Registrar en Jira ──────────────────────────────────
         original_to_save = f"[Transcripción Audio]: {text}" if is_audio else text
-        jira_result = create_task(task_data, original_to_save, user_name)
+        jira_result = create_task(task_data, original_to_save, user_name, assignee_account_id)
 
         if jira_result:
             # Construir mensaje de confirmación
             priority_display = PRIORITY_DISPLAY.get(task_data.get("priority", "Media"), "🟡 Media")
             deadline = task_data.get("deadline", "Sin fecha definida")
             deadline_display = f"📅 {deadline}" if deadline != "Sin fecha definida" else "📅 Sin fecha definida"
-            
+
             jira_key = jira_result.get("key", "N/A")
             jira_link = f"{JIRA_URL.rstrip('/')}/browse/{jira_key}"
 
             header = "🎙️ **Audio transcrito y registrado**" if is_audio else "✅ **Tarea registrada en Jira**"
             transcription_block = f"\n📖 *Texto detectado:* \"{text}\"\n" if is_audio else ""
+            assignee_display_line = f"👤 Asignado a: **{assignee_name}**\n" if assignee_name else "👤 Sin asignar\n"
 
             confirmation = (
                 f"{header}\n\n"
@@ -163,6 +173,7 @@ def handle_message(update_data: dict) -> None:
                 f"📌 **{task_data['task']}**\n"
                 f"{transcription_block}"
                 f"{deadline_display}\n"
+                f"{assignee_display_line}"
                 f"🏷️ Prioridad: {priority_display}\n"
                 f"📊 Estado: Por hacer ⏳"
             )
@@ -172,6 +183,16 @@ def handle_message(update_data: dict) -> None:
                 text=confirmation,
                 reply_to_message_id=message_id,
                 parse_mode="Markdown",
+            )
+
+            # ── Programar recordatorios ────────────────────────
+            schedule_task_reminders(
+                chat_id=chat_id,
+                jira_key=jira_key,
+                task_title=task_data["task"],
+                assignee_display=assignee_name or "",
+                deadline_str=deadline if deadline != "Sin fecha definida" else None,
+                jira_link=jira_link,
             )
         else:
             _send_message(

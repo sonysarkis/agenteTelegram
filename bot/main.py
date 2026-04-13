@@ -15,6 +15,8 @@ from flask import Flask, request, jsonify
 
 from bot.config import TELEGRAM_BOT_TOKEN, WEBHOOK_URL, PORT
 from bot.telegram_handler import handle_message
+from bot.jira_users import load_team_account_ids
+from bot.reminder_scheduler import init_scheduler
 
 # ── Inicializar Flask ─────────────────────────────────────────
 app = Flask(__name__)
@@ -76,11 +78,15 @@ def setup_webhook():
 
 
 # ── Startup ──────────────────────────────────────────────
-# Registrar webhook al iniciar la app
+# Registrar webhook, cargar usuarios de Jira e iniciar scheduler
 with app.app_context():
     print("🚀 Iniciando Agente Telegram PM...")
     print(f"📡 Webhook URL: {WEBHOOK_URL}/webhook")
     setup_webhook()
+    print("👥 Cargando usuarios de Jira...")
+    load_team_account_ids()
+    print("⏰ Iniciando scheduler de recordatorios...")
+    init_scheduler()
     print("✅ Bot listo para recibir mensajes")
 
 

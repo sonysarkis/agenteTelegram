@@ -4,7 +4,8 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn bot.main:app --bind 0.0.0.0:$PORT
+    # --workers 1 evita que el scheduler se duplique en múltiples procesos
+    startCommand: gunicorn bot.main:app --bind 0.0.0.0:$PORT --workers 1
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.11"
@@ -24,5 +25,22 @@ services:
         sync: false
       - key: JIRA_PROJECT_KEY
         sync: false
+      - key: WEBHOOK_URL
+        sync: false
+      # Opcional: añade una PostgreSQL gratuita en Render y pega su Internal URL
+      # aquí para que los recordatorios sobrevivan reinicios del servicio.
+      # - key: DATABASE_URL
+      #   sync: false
+
+  # Cron job para mantener el servicio despierto (evita que Render lo hiberne).
+  # Hace ping al health check cada 10 minutos.
+  - type: cron
+    name: agente-pm-keepalive
+    runtime: python
+    plan: free
+    schedule: "*/10 * * * *"
+    buildCommand: pip install httpx
+    startCommand: python -c "import httpx, os; r = httpx.get(os.environ['WEBHOOK_URL'] + '/', timeout=10); print('ping:', r.status_code)"
+    envVars:
       - key: WEBHOOK_URL
         sync: false

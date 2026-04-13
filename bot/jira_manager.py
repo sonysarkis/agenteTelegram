@@ -28,15 +28,21 @@ PRIORITY_MAPPING = {
 }
 
 
-def create_task(task_data: dict, original_message: str, user_name: str = "Usuario") -> dict | None:
+def create_task(
+    task_data: dict,
+    original_message: str,
+    user_name: str = "Usuario",
+    assignee_account_id: str | None = None,
+) -> dict | None:
     """
     Crea un nuevo issue en Jira.
-    
+
     Args:
         task_data: dict con keys: task, description, deadline, priority
         original_message: texto original del mensaje
         user_name: nombre del usuario que envió el mensaje
-    
+        assignee_account_id: accountId de Jira del asignado (opcional)
+
     Returns:
         dict con la respuesta de Jira o None si hubo error
     """
@@ -91,8 +97,11 @@ def create_task(task_data: dict, original_message: str, user_name: str = "Usuari
         # Agregar fecha límite si existe (formato YYYY-MM-DD)
         deadline = task_data.get("deadline", "")
         if deadline and deadline != "Sin fecha definida":
-            # Groq suele devolver YYYY-MM-DD, pero validamos mínimamente
             fields["duedate"] = deadline
+
+        # Asignar a un miembro del equipo si se resolvió su accountId
+        if assignee_account_id:
+            fields["assignee"] = {"accountId": assignee_account_id}
 
         payload = {"fields": fields}
 

@@ -39,3 +39,40 @@ JIRA_PROJECT_KEY: str = _get_required("JIRA_PROJECT_KEY")
 # ── App ───────────────────────────────────────────────────
 WEBHOOK_URL: str = _get_required("WEBHOOK_URL")
 PORT: int = int(os.getenv("PORT", "5000"))
+
+# ── Base de datos (opcional, para persistencia del scheduler) ──
+# Si se define, APScheduler guarda los jobs en esta BD y sobrevive reinicios.
+# En Render puedes añadir una PostgreSQL gratuita y pegar su Internal URL aquí.
+DATABASE_URL: str | None = os.getenv("DATABASE_URL")
+
+# ── Equipo (para auto-asignación en Jira) ─────────────────
+# Mapeo nombre canónico → correo de Jira
+TEAM_MEMBERS: dict[str, str] = {
+    "Sony":      "sonygomez6@gmail.com",
+    "Dylan":     "dyez1110@gmail.com",
+    "Sebastian": "soyjuanseyepes@gmail.com",
+}
+
+# Todos los alias reconocidos (en minúsculas) → nombre canónico.
+# El fuzzy matching atrapa errores tipográficos, pero estos alias son
+# la primera línea de defensa para variantes conocidas.
+TEAM_ALIASES: dict[str, str] = {
+    # Sony
+    "sony":      "Sony",
+    "soni":      "Sony",
+    "sonym":     "Sony",
+    "sonya":     "Sony",
+    # Dylan
+    "dylan":     "Dylan",
+    "dyla":      "Dylan",
+    "dyln":      "Dylan",
+    "dilan":     "Dylan",
+    "dilon":     "Dylan",
+    # Sebastian / Sebas
+    "sebastian": "Sebastian",
+    "sebastián": "Sebastian",
+    "sebas":     "Sebastian",
+    "seba":      "Sebastian",
+    "sebasti":   "Sebastian",
+    "sebas":     "Sebastian",
+}

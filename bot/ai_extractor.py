@@ -56,6 +56,9 @@ def extract_task(message_text: str) -> dict | None:
             print(f"⚠️ Respuesta de IA incompleta: {result}")
             return None
 
+        # assignee es opcional — si no viene en la respuesta, lo ponemos en None
+        result.setdefault("assignee", None)
+
         return result
 
     except json.JSONDecodeError as e:
