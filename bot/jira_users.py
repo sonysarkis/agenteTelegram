@@ -12,7 +12,7 @@ import traceback
 import base64
 import httpx
 
-from bot.config import JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN, TEAM_MEMBERS, TEAM_ALIASES
+from bot.config import JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN, TEAM_MEMBERS, TEAM_ALIASES, JIRA_NAME_HINTS
 
 # ── Auth headers ──────────────────────────────────────────
 _auth_b64 = base64.b64encode(f"{JIRA_EMAIL}:{JIRA_API_TOKEN}".encode()).decode()
@@ -29,27 +29,68 @@ def load_team_account_ids() -> None:
     """
     Consulta la API de Jira para obtener el accountId de cada miembro
     del equipo definido en TEAM_MEMBERS y lo guarda en caché.
-    Llamar una vez al inicio del bot.
+
+    Estrategia de búsqueda (Jira Cloud oculta emails por privacidad):
+    1. Busca por email — funciona si el usuario tiene email público.
+    2. Si no lo encuentra, busca por nombre canónico (display name).
+    3. Toma el primer resultado activo cuyo displayName contenga el nombre.
     """
     global _account_ids
+    url = f"{JIRA_URL.rstrip('/')}/rest/api/3/user/search"
+
     for canonical_name, email in TEAM_MEMBERS.items():
         try:
-            url = f"{JIRA_URL.rstrip('/')}/rest/api/3/user/search"
+            # ── Intento 1: buscar por email ───────────────────
             resp = httpx.get(url, headers=_HEADERS, params={"query": email}, timeout=10)
+            matched = None
 
             if resp.status_code == 200:
                 users = resp.json()
+                # Jira puede devolver el email o no (privacidad)
                 matched = next(
-                    (u for u in users if u.get("emailAddress", "").lower() == email.lower()),
+                    (u for u in users
+                     if u.get("emailAddress", "").lower() == email.lower()
+                     and u.get("accountType") == "atlassian"),
                     None,
                 )
-                if matched:
-                    _account_ids[canonical_name] = matched["accountId"]
-                    print(f"✅ Usuario Jira cargado: {canonical_name} → {matched['accountId']}")
-                else:
-                    print(f"⚠️ No se encontró usuario Jira para {canonical_name} ({email})")
+
+            # ── Intento 2: buscar por nombre hint si el email falló ─
+            resp2 = None
+            if not matched:
+                # Usar el hint de nombre de Jira si está definido (ej: "Juanse" para Sebastian)
+                name_hint = JIRA_NAME_HINTS.get(canonical_name, canonical_name)
+                resp2 = httpx.get(url, headers=_HEADERS, params={"query": name_hint}, timeout=10)
+                if resp2.status_code == 200:
+                    users2 = resp2.json()
+                    hint_lower = name_hint.lower()
+                    # 2a. Con filtro de accountType
+                    matched = next(
+                        (u for u in users2
+                         if hint_lower in u.get("displayName", "").lower()
+                         and u.get("accountType") == "atlassian"),
+                        None,
+                    )
+                    # 2b. Sin filtro de accountType (fallback por si Jira devuelve otro tipo)
+                    if not matched:
+                        matched = next(
+                            (u for u in users2
+                             if hint_lower in u.get("displayName", "").lower()),
+                            None,
+                        )
+
+            if matched:
+                _account_ids[canonical_name] = matched["accountId"]
+                print(f"✅ Usuario Jira cargado: {canonical_name} → {matched['accountId']} "
+                      f"(displayName='{matched.get('displayName', '')}', accountType='{matched.get('accountType', '')}')")
             else:
-                print(f"❌ Error buscando usuario Jira {canonical_name}: {resp.status_code} {resp.text[:200]}")
+                # Mostrar qué devolvió Jira para diagnosticar el problema de nombres
+                found_names = []
+                if resp.status_code == 200:
+                    found_names += [f"{u.get('displayName','')}({u.get('accountType','')})" for u in resp.json()]
+                if resp2 and resp2.status_code == 200:
+                    found_names += [f"{u.get('displayName','')}({u.get('accountType','')})" for u in resp2.json()]
+                print(f"⚠️ No se encontró usuario Jira para {canonical_name} ({email}). "
+                      f"Resultados de Jira: {found_names or '(ninguno)'}")
 
         except Exception as e:
             print(f"❌ Error cargando usuario Jira {canonical_name}: {e}")

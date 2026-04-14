@@ -9,6 +9,7 @@ Este archivo:
 """
 
 import traceback
+import threading
 import httpx
 
 from flask import Flask, request, jsonify
@@ -65,7 +66,7 @@ def telegram_webhook():
             if len(_processed_update_ids) > _MAX_STORED_IDS:
                 _processed_update_ids.discard(min(_processed_update_ids))
 
-        handle_message(update_data)
+        threading.Thread(target=handle_message, args=(update_data,), daemon=True).start()
 
         return jsonify({"ok": True}), 200
 

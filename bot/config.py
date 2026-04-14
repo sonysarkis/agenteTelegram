@@ -53,6 +53,17 @@ TEAM_MEMBERS: dict[str, str] = {
     "Sebastian": "soyjuanseyepes@gmail.com",
 }
 
+# Pista de nombre para buscar en Jira cuando el email no es visible.
+# Usar parte del displayName exacto como aparece en el perfil de Jira.
+# Sony     → displayName contiene "Sony"
+# Dylan    → displayName es "Dylan Bermudez Cardona"
+# Sebastian→ displayName es "Juanse Yepes" (nombre real en Jira)
+JIRA_NAME_HINTS: dict[str, str] = {
+    "Sony":      "Sony",
+    "Dylan":     "Dylan",
+    "Sebastian": "Juanse",
+}
+
 # Todos los alias reconocidos (en minúsculas) → nombre canónico.
 # El fuzzy matching atrapa errores tipográficos, pero estos alias son
 # la primera línea de defensa para variantes conocidas.
@@ -68,11 +79,14 @@ TEAM_ALIASES: dict[str, str] = {
     "dyln":      "Dylan",
     "dilan":     "Dylan",
     "dilon":     "Dylan",
-    # Sebastian / Sebas
+    "dylan bermudez": "Dylan",
+    # Sebastian / Sebas / Juanse
     "sebastian": "Sebastian",
     "sebastián": "Sebastian",
     "sebas":     "Sebastian",
     "seba":      "Sebastian",
     "sebasti":   "Sebastian",
-    "sebas":     "Sebastian",
+    "juanse":    "Sebastian",
+    "juanseye":  "Sebastian",
+    "yepes":     "Sebastian",
 }
