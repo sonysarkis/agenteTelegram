@@ -53,6 +53,16 @@ TEAM_MEMBERS: dict[str, str] = {
     "Sebastian": "soyjuanseyepes@gmail.com",
 }
 
+# AccountIDs directos de Jira (más confiable que buscar por email/nombre).
+# Si están definidos, se usan directamente sin hacer búsquedas a la API.
+# Cómo obtenerlos: Jira admin → visita el perfil del usuario → la URL contiene el accountId.
+# O: GET https://TU-DOMINIO.atlassian.net/rest/api/3/users/search (con tus credenciales de admin)
+JIRA_ACCOUNT_IDS: dict[str, str] = {
+    "Sony":      "712020:14ec8b9e-096a-4bb0-842d-3e6599f13e73",
+    "Dylan":     "712020:b01613d4-48ad-48f7-ae18-e3c5439f6a1d",
+    "Sebastian": "712020:73dda969-abf5-48f6-a292-b1712a25ded0",
+}
+
 # Pista de nombre para buscar en Jira cuando el email no es visible.
 # Usar parte del displayName exacto como aparece en el perfil de Jira.
 # Sony     → displayName contiene "Sony"
