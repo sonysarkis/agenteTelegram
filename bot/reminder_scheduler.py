@@ -31,11 +31,18 @@ from datetime import datetime, timezone, timedelta
 import httpx
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.memory import MemoryJobStore
+from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_MISSED, EVENT_JOB_ERROR
 
 from bot.config import TELEGRAM_BOT_TOKEN, JIRA_URL
 
 # Zona horaria del equipo (UTC-4)
 _TZ = timezone(timedelta(hours=-4))
+
+# Tolerancia ante deploys/reinicios: si un job debía dispararse pero el server
+# estaba caído o lento, todavía se ejecuta si la ventana sigue abierta al volver.
+# Sin esto (default 1s de APScheduler), cualquier deploy mata los recordatorios
+# que coincidan con la ventana de shutdown.
+_MISFIRE_GRACE_SECONDS = 3600  # 1 hora
 
 # Instancia singleton del scheduler
 _scheduler: BackgroundScheduler | None = None
@@ -62,9 +69,40 @@ def init_scheduler() -> BackgroundScheduler:
         print("   → Para persistencia añade DATABASE_URL en Render.")
 
     _scheduler = BackgroundScheduler(jobstores=job_stores, timezone=_TZ)
+    _scheduler.add_listener(
+        _job_event_listener,
+        EVENT_JOB_EXECUTED | EVENT_JOB_MISSED | EVENT_JOB_ERROR,
+    )
     _scheduler.start()
     print("✅ Scheduler iniciado")
+
+    # Listar jobs pendientes recuperados del jobstore (útil tras reinicio)
+    pending = _scheduler.get_jobs()
+    if pending:
+        print(f"📋 Scheduler: {len(pending)} recordatorios pendientes cargados de la BD:")
+        for job in pending:
+            if job.next_run_time:
+                when = job.next_run_time.astimezone(_TZ).strftime("%d/%m %H:%M")
+                print(f"   ⏱  {job.id} → {when} (hora equipo)")
+    else:
+        print("📋 Scheduler: sin recordatorios pendientes en la BD")
+
     return _scheduler
+
+
+def _job_event_listener(event) -> None:
+    """Imprime en logs qué pasó con cada job disparado por APScheduler."""
+    if event.code == EVENT_JOB_EXECUTED:
+        print(f"✅ Recordatorio disparado OK: {event.job_id}")
+    elif event.code == EVENT_JOB_MISSED:
+        scheduled = event.scheduled_run_time.astimezone(_TZ).strftime("%d/%m %H:%M")
+        print(
+            f"⚠️ Recordatorio PERDIDO (misfire): {event.job_id} — "
+            f"programado para {scheduled}. "
+            f"Considera aumentar _MISFIRE_GRACE_SECONDS si ocurre seguido."
+        )
+    elif event.code == EVENT_JOB_ERROR:
+        print(f"❌ Recordatorio FALLÓ: {event.job_id} — {event.exception}")
 
 
 def get_scheduler() -> BackgroundScheduler | None:
@@ -238,6 +276,7 @@ def _add_job(scheduler, func, fire_time: datetime, job_id: str, args: list) -> N
             args=args,
             id=job_id,
             replace_existing=True,
+            misfire_grace_time=_MISFIRE_GRACE_SECONDS,
         )
         local_time = fire_time.astimezone(_TZ).strftime("%d/%m %H:%M")
         print(f"   ⏱  Job '{job_id}' programado para {local_time} (hora equipo)")
