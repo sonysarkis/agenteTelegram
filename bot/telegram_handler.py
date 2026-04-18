@@ -5,6 +5,7 @@ from bot.ai_extractor import extract_task, transcribe_audio
 from bot.jira_manager import create_task, transition_issue
 from bot.jira_users import resolve_assignee
 from bot.reminder_scheduler import schedule_task_reminders
+from bot.strategy_agents import process_strategy_flow
 
 
 # Emojis para las prioridades en el mensaje de confirmación
@@ -114,12 +115,17 @@ def handle_message(update_data: dict) -> None:
         if not text:
             return 
 
-        # ── Filtro 4: Ignorar comandos del bot ──────────────────
+        # ── Filtro 4: Comandos del bot ──────────────────────────
         if text.startswith("/"):
-            if text.strip() == "/estado":
+            stripped = text.strip()
+            lower = stripped.lower()
+
+            if stripped == "/estado":
                 _send_status(chat_id)
-            elif text.strip() in ("/ayuda", "/help"):
+            elif stripped in ("/ayuda", "/help"):
                 _send_help(chat_id)
+            elif lower == "/s" or lower.startswith("/s ") or lower.startswith("/s\n"):
+                _handle_strategy_flow(chat_id, message_id, user_name, stripped)
             return
 
         # ── Procesar con IA ─────────────────────────────────────
@@ -218,6 +224,101 @@ def handle_message(update_data: dict) -> None:
         traceback.print_exc()
 
 
+def _handle_strategy_flow(chat_id: int, message_id: int, user_name: str, full_text: str) -> None:
+    """
+    Flujo /s: Strategy (Hormozi roast) → PM (tareas accionables) → Jira.
+    Las tareas se crean en Jira con assignee; el análisis se muestra en el chat.
+    """
+    # Extraer el contenido después de "/s"
+    content = full_text[2:].lstrip()
+
+    if not content:
+        _send_message(
+            chat_id=chat_id,
+            text="⚠️ Uso: /s <mensaje estratégico>\n\nEjemplo: /s Estamos perdiendo leads en negociación, deberíamos bajar precios.",
+            reply_to_message_id=message_id,
+        )
+        return
+
+    print(f"🧠 Flujo estratégico disparado por {user_name}: {content[:80]}...")
+    _send_message(chat_id=chat_id, text="🧠 Procesando estrategia...", reply_to_message_id=message_id)
+
+    strategy_text, pm_result = process_strategy_flow(content)
+
+    if not strategy_text:
+        _send_message(
+            chat_id=chat_id,
+            text="❌ Error en el agente Strategy. Intenta de nuevo.",
+            reply_to_message_id=message_id,
+        )
+        return
+
+    # Enviar el análisis estratégico (plain text para evitar romper Markdown)
+    _send_message(
+        chat_id=chat_id,
+        text=f"🧠 STRATEGY\n\n{strategy_text}",
+        reply_to_message_id=message_id,
+    )
+
+    if not pm_result:
+        _send_message(
+            chat_id=chat_id,
+            text="❌ Error en el agente PM — no se pudieron extraer tareas ejecutables.",
+            reply_to_message_id=message_id,
+        )
+        return
+
+    # Crear las tareas del PM en Jira
+    tasks = pm_result.get("tasks", [])
+    priority_emoji = {"Alta": "🔴", "Media": "🟡", "Baja": "🟢"}
+    created_lines = []
+
+    for t in tasks:
+        owner_raw = t.get("owner")
+        resolved = resolve_assignee(owner_raw) if owner_raw else None
+        assignee_name = resolved[0] if resolved else None
+        assignee_account_id = resolved[1] if resolved else None
+
+        task_data = {
+            "task": t.get("task", "Sin título"),
+            "description": t.get("context", ""),
+            "deadline": "Sin fecha definida",
+            "priority": t.get("priority", "Media"),
+        }
+
+        jira_result = create_task(task_data, content, user_name, assignee_account_id)
+
+        if jira_result:
+            key = jira_result.get("key", "N/A")
+            link = f"{JIRA_URL.rstrip('/')}/browse/{key}"
+            emoji = priority_emoji.get(task_data["priority"], "🟡")
+            who = assignee_name or "Sin asignar"
+            created_lines.append(f"{emoji} {task_data['task']} — {who}\n   {key}: {link}")
+        else:
+            created_lines.append(f"❌ NO se creó: {t.get('task', '(sin título)')}")
+
+    # Construir y enviar el mensaje del PM
+    parts = ["📋 EXECUTION PLAN\n"]
+
+    if created_lines:
+        parts.append("Tareas registradas en Jira:")
+        parts.extend(created_lines)
+    else:
+        parts.append("⚠️ El PM no generó tareas ejecutables.")
+
+    if pm_result.get("execution_check"):
+        parts.append(f"\n❓ EXECUTION CHECK\n{pm_result['execution_check']}")
+
+    if pm_result.get("challenge"):
+        parts.append(f"\n⚠️ CHALLENGE\n{pm_result['challenge']}")
+
+    _send_message(
+        chat_id=chat_id,
+        text="\n".join(parts),
+        reply_to_message_id=message_id,
+    )
+
+
 def _send_help(chat_id: int) -> None:
     """Envía el mensaje de ayuda."""
     help_text = (
@@ -227,7 +328,8 @@ def _send_help(chat_id: int) -> None:
         "la analizo y la registro en Jira.\n\n"
         "**Comandos disponibles:**\n"
         "/ayuda — Muestra este mensaje\n"
-        "/estado — Verifica el estado del bot\n\n"
+        "/estado — Verifica el estado del bot\n"
+        "/s <mensaje> — Análisis estratégico (roast) + tareas ejecutables en Jira\n\n"
         "**¿Cómo funciono?**\n"
         "1. Escribes o mandas un audio con una indicación\n"
         "2. Si es audio, lo transcribo automáticamente\n"
