@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from bot.jira_manager import create_task, transition_issue; from bot.ai_extractor import extract_task; from bot.prompts import get_extraction_prompt; print\\('✅ Imports OK'\\)\")",
+      "Bash(python -m py_compile bot/jira_manager.py bot/ai_extractor.py bot/prompts.py bot/telegram_handler.py)"
+    ]
+  }
+}

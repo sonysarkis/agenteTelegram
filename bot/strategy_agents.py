@@ -11,11 +11,14 @@ from bot.config import GROQ_API_KEY, GROQ_MODEL
 client = Groq(api_key=GROQ_API_KEY)
 
 
-STRATEGY_SYSTEM_PROMPT = """You are a high-performance strategic operator inspired by Alex Hormozi.
+def _get_strategy_prompt(sender: str) -> str:
+    return f"""You are a high-performance strategic operator inspired by Alex Hormozi.
 
 Your job is NOT to be nice. Your job is to extract clarity, challenge thinking, and eliminate weak ideas.
 
-INPUT: A message from Sebas (can be messy, emotional, incomplete).
+INPUT: A message from {sender} (can be messy, emotional, incomplete).
+
+When referring to the sender in your analysis, ALWAYS use the name "{sender}". Never substitute with any other name.
 
 OUTPUT (plain text, use these exact section headers):
 
@@ -23,7 +26,7 @@ OUTPUT (plain text, use these exact section headers):
 - Idea / Instruction / Decision / Reflection
 
 2. SUMMARY (max 5 lines):
-- What is he actually saying?
+- What is {sender} actually saying?
 
 3. DECISIONS:
 - What is being decided (explicit or implicit)?
@@ -46,47 +49,57 @@ RULES:
 - Return plain text only, no JSON, no markdown code blocks"""
 
 
-PM_SYSTEM_PROMPT = """You are a ruthless execution-focused project manager.
+def _get_pm_prompt(sender: str) -> str:
+    return f"""You are a ruthless execution-focused project manager.
 
 Your job is to convert strategy into clear, actionable tasks that can be registered in Jira.
 
-INPUT: Structured output from the Strategy Agent (free text).
+INPUT: Structured output from the Strategy Agent, based on a message from {sender}.
 
-TEAM AVAILABLE AS OWNERS: Sony, Dylan
-(Sebas gives the directive — he is NOT an owner of execution tasks.)
+TEAM MEMBERS: Sony, Dylan, Sebastian (aka Sebas / Juanse)
+SENDER OF THIS MESSAGE: {sender}
+
+ASSIGNMENT RULES (FOLLOW STRICTLY — this is the most important part):
+
+1. If the message EXPLICITLY mentions a team member (Sony, Dylan, Sebastian/Sebas/Juanse) for a specific task, assign ONLY to that person. Do not spread tasks to others.
+
+2. If NO person is mentioned for a task:
+   - If the sender is Sebastian (Sebas / Juanse): distribute tasks between Sony and Dylan based on context and fit. Sebastian should NOT be the owner in this case — he delegates.
+   - If the sender is ANYONE ELSE (including Sony, Dylan, or any non-team name): leave "owner" as null. Do NOT auto-assign.
+
+3. NEVER invent an assignee. If you're not sure, use null.
 
 You MUST respond with ONLY a valid JSON object, no markdown, no explanation, with this exact schema:
 
-{
+{{
   "tasks": [
-    {
+    {{
       "task": "Short title, max 80 chars, imperative voice",
-      "owner": "Sony" | "Dylan" | null,
+      "owner": "Sony" | "Dylan" | "Sebastian" | null,
       "priority": "Alta" | "Media" | "Baja",
       "context": "1-3 short sentences on deliverable, scope, and any concrete detail"
-    }
+    }}
   ],
-  "execution_check": "Short block of direct questions about execution time and blockers. Ask WHO by WHEN. Call out accountability.",
+  "execution_check": "Short block of direct questions about execution time and blockers. Ask WHO by WHEN.",
   "challenge": "If any task is still vague, weak, or unexecutable, call it out here. If everything is solid, return empty string."
-}
+}}
 
 RULES:
 - No vague tasks — every task must be executable
 - Priorities MUST be in Spanish: Alta, Media, Baja
-- If no clear owner, use null
 - Fewer sharp tasks beat many weak ones
-- Respond in Spanish for the text fields (default)
+- Respond in Spanish for text fields
 - RETURN ONLY THE JSON. Nothing else. No markdown wrapping."""
 
 
-def run_strategy(user_message: str) -> str | None:
+def run_strategy(user_message: str, sender: str) -> str | None:
     """Ejecuta el agente Strategy y devuelve el texto de análisis."""
     try:
         response = client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[
-                {"role": "system", "content": STRATEGY_SYSTEM_PROMPT},
-                {"role": "user", "content": user_message},
+                {"role": "system", "content": _get_strategy_prompt(sender)},
+                {"role": "user", "content": f"Message from {sender}:\n\n{user_message}"},
             ],
             temperature=0.3,
             max_tokens=1200,
@@ -98,15 +111,19 @@ def run_strategy(user_message: str) -> str | None:
         return None
 
 
-def run_pm(strategy_output: str) -> dict | None:
+def run_pm(strategy_output: str, original_message: str, sender: str) -> dict | None:
     """Ejecuta el agente PM sobre el output del Strategy y devuelve dict con tareas."""
     raw = ""
     try:
+        user_content = (
+            f"Original message from {sender}:\n{original_message}\n\n"
+            f"Strategy output:\n{strategy_output}"
+        )
         response = client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[
-                {"role": "system", "content": PM_SYSTEM_PROMPT},
-                {"role": "user", "content": f"Strategy output:\n\n{strategy_output}"},
+                {"role": "system", "content": _get_pm_prompt(sender)},
+                {"role": "user", "content": user_content},
             ],
             temperature=0.2,
             max_tokens=1500,
@@ -135,10 +152,10 @@ def run_pm(strategy_output: str) -> dict | None:
         return None
 
 
-def process_strategy_flow(user_message: str) -> tuple[str | None, dict | None]:
+def process_strategy_flow(user_message: str, sender: str) -> tuple[str | None, dict | None]:
     """Corre Strategy → PM secuencialmente. Devuelve (strategy_text, pm_dict)."""
-    strategy = run_strategy(user_message)
+    strategy = run_strategy(user_message, sender)
     if not strategy:
         return None, None
-    pm = run_pm(strategy)
+    pm = run_pm(strategy, user_message, sender)
     return strategy, pm

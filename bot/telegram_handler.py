@@ -240,10 +240,15 @@ def _handle_strategy_flow(chat_id: int, message_id: int, user_name: str, full_te
         )
         return
 
-    print(f"🧠 Flujo estratégico disparado por {user_name}: {content[:80]}...")
+    # Resolver el nombre del remitente al canónico del equipo (Sony/Dylan/Sebastian)
+    # Si el remitente no está en el equipo, se usa su nombre de Telegram tal cual.
+    resolved_sender = resolve_assignee(user_name)
+    sender_canonical = resolved_sender[0] if resolved_sender else user_name
+
+    print(f"🧠 Flujo estratégico disparado por {user_name} (canónico: {sender_canonical}): {content[:80]}...")
     _send_message(chat_id=chat_id, text="🧠 Procesando estrategia...", reply_to_message_id=message_id)
 
-    strategy_text, pm_result = process_strategy_flow(content)
+    strategy_text, pm_result = process_strategy_flow(content, sender_canonical)
 
     if not strategy_text:
         _send_message(
