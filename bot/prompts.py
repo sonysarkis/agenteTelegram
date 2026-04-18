@@ -46,6 +46,11 @@ EQUIPO: {team_names}
    - El equipo es: {team_names}. Puede estar escrito con variaciones o typos (ej: "sonym", "dyla", "sebas").
    - Si no se menciona ninguna persona → usa null.
    - Devuelve el nombre tal como aparece en el mensaje (el sistema lo resolverá internamente).
+7. **Estado (status)**:
+   - "Por hacer" → si no se menciona estado, o dice "pendiente", "por hacer", "nueva tarea", etc.
+   - "En curso" → si dice "en curso", "en progreso", "empezando", "iniciando", "ya empecé", "estoy trabajando en", "lo tengo en curso", etc.
+   - "Finalizado" → si dice "finalizado", "terminado", "completado", "listo", "ya terminé", "está hecho", "done", etc.
+   - Por defecto usa "Por hacer" si no se menciona nada sobre el estado.
 
 ## FORMATO DE RESPUESTA:
 
@@ -57,7 +62,8 @@ Responde ÚNICAMENTE con un JSON válido, sin markdown, sin explicaciones:
   "description": "Reporte de ventas del primer trimestre para la reunión del lunes",
   "deadline": "2025-03-28",
   "priority": "Alta",
-  "assignee": "Dylan"
+  "assignee": "Dylan",
+  "status": "Por hacer"
 }}
 
 Si no hay asignado, usa null:
@@ -71,7 +77,8 @@ Si NO es una tarea:
   "description": "",
   "deadline": "",
   "priority": "",
-  "assignee": null
+  "assignee": null,
+  "status": "Por hacer"
 }}
 
 IMPORTANTE: Responde SOLO con el JSON. Nada más."""

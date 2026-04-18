@@ -2,7 +2,7 @@ import traceback
 import httpx
 from bot.config import AUTHORIZED_USER_IDS, TELEGRAM_BOT_TOKEN, JIRA_URL
 from bot.ai_extractor import extract_task, transcribe_audio
-from bot.jira_manager import create_task
+from bot.jira_manager import create_task, transition_issue
 from bot.jira_users import resolve_assignee
 from bot.reminder_scheduler import schedule_task_reminders
 
@@ -155,13 +155,25 @@ def handle_message(update_data: dict) -> None:
         jira_result = create_task(task_data, original_to_save, user_name, assignee_account_id)
 
         if jira_result:
+            jira_key = jira_result.get("key", "N/A")
+            jira_link = f"{JIRA_URL.rstrip('/')}/browse/{jira_key}"
+
+            # ── Transicionar estado si no es "Por hacer" ──────────
+            task_status = task_data.get("status", "Por hacer")
+            if task_status in ("En curso", "Finalizado"):
+                transition_issue(jira_key, task_status)
+
             # Construir mensaje de confirmación
             priority_display = PRIORITY_DISPLAY.get(task_data.get("priority", "Media"), "🟡 Media")
             deadline = task_data.get("deadline", "Sin fecha definida")
             deadline_display = f"📅 {deadline}" if deadline != "Sin fecha definida" else "📅 Sin fecha definida"
 
-            jira_key = jira_result.get("key", "N/A")
-            jira_link = f"{JIRA_URL.rstrip('/')}/browse/{jira_key}"
+            STATUS_DISPLAY = {
+                "Por hacer":   "Por hacer ⏳",
+                "En curso":    "En curso 🔄",
+                "Finalizado":  "Finalizado ✅",
+            }
+            status_display = STATUS_DISPLAY.get(task_status, "Por hacer ⏳")
 
             header = "🎙️ **Audio transcrito y registrado**" if is_audio else "✅ **Tarea registrada en Jira**"
             transcription_block = f"\n📖 *Texto detectado:* \"{text}\"\n" if is_audio else ""
@@ -175,7 +187,7 @@ def handle_message(update_data: dict) -> None:
                 f"{deadline_display}\n"
                 f"{assignee_display_line}"
                 f"🏷️ Prioridad: {priority_display}\n"
-                f"📊 Estado: Por hacer ⏳"
+                f"📊 Estado: {status_display}"
             )
 
             _send_message(

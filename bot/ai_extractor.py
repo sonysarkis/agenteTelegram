@@ -58,6 +58,8 @@ def extract_task(message_text: str) -> dict | None:
 
         # assignee es opcional — si no viene en la respuesta, lo ponemos en None
         result.setdefault("assignee", None)
+        # status es opcional — por defecto "Por hacer"
+        result.setdefault("status", "Por hacer")
 
         return result
 

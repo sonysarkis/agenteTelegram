@@ -122,6 +122,72 @@ def create_task(
         return None
 
 
+# Mapeo de estado en español → posibles nombres de columna en Jira (en orden de preferencia)
+STATUS_NAME_MAPPING = {
+    "En curso":    ["In Progress", "En curso", "En Curso", "In progress"],
+    "Finalizado":  ["Done", "Finalizado", "Completado", "Closed", "Cerrado"],
+}
+
+
+def transition_issue(issue_key: str, target_status: str) -> bool:
+    """
+    Mueve un issue de Jira al estado indicado usando la API de transiciones.
+
+    Args:
+        issue_key: clave del issue (ej: "KAN-42")
+        target_status: "En curso" o "Finalizado"
+
+    Returns:
+        True si la transición fue exitosa, False si no
+    """
+    if target_status == "Por hacer":
+        return True  # Ya está en ese estado por defecto
+
+    try:
+        # 1. Obtener transiciones disponibles para este issue
+        url = f"{JIRA_URL.rstrip('/')}/rest/api/3/issue/{issue_key}/transitions"
+        response = httpx.get(url, headers=HEADERS, timeout=15)
+
+        if response.status_code != 200:
+            print(f"❌ Error obteniendo transiciones ({response.status_code}): {response.text}")
+            return False
+
+        transitions = response.json().get("transitions", [])
+
+        # 2. Buscar la transición que coincida con el estado deseado
+        candidate_names = STATUS_NAME_MAPPING.get(target_status, [])
+        transition_id = None
+
+        for candidate in candidate_names:
+            for t in transitions:
+                if t.get("to", {}).get("name", "").lower() == candidate.lower():
+                    transition_id = t["id"]
+                    break
+            if transition_id:
+                break
+
+        if not transition_id:
+            available = [t.get("to", {}).get("name") for t in transitions]
+            print(f"⚠️ No se encontró transición hacia '{target_status}'. Disponibles: {available}")
+            return False
+
+        # 3. Ejecutar la transición
+        payload = {"transition": {"id": transition_id}}
+        resp = httpx.post(url, headers=HEADERS, json=payload, timeout=15)
+
+        if resp.status_code == 204:
+            print(f"✅ Issue {issue_key} movido a '{target_status}'")
+            return True
+        else:
+            print(f"❌ Error en transición ({resp.status_code}): {resp.text}")
+            return False
+
+    except Exception as e:
+        print(f"❌ Error al transicionar issue {issue_key}: {e}")
+        traceback.print_exc()
+        return False
+
+
 def test_connection() -> bool:
     """Verifica que la conexión con Jira funcione."""
     try:
