@@ -188,6 +188,39 @@ def transition_issue(issue_key: str, target_status: str) -> bool:
         return False
 
 
+def delete_issue(issue_key: str) -> bool:
+    """
+    Elimina definitivamente un issue de Jira.
+
+    Args:
+        issue_key: clave del issue (ej: "KAN-42")
+
+    Returns:
+        True si se eliminó correctamente, False si hubo error
+    """
+    try:
+        url = f"{JIRA_URL.rstrip('/')}/rest/api/3/issue/{issue_key}"
+        response = httpx.delete(url, headers=HEADERS, timeout=15)
+
+        if response.status_code == 204:
+            print(f"🗑️ Issue {issue_key} eliminado de Jira")
+            return True
+        elif response.status_code == 403:
+            print(f"❌ Sin permisos para eliminar {issue_key}: {response.text}")
+            return False
+        elif response.status_code == 404:
+            print(f"❌ Issue {issue_key} no encontrado en Jira")
+            return False
+        else:
+            print(f"❌ Error eliminando {issue_key} ({response.status_code}): {response.text}")
+            return False
+
+    except Exception as e:
+        print(f"❌ Error al eliminar issue {issue_key}: {e}")
+        traceback.print_exc()
+        return False
+
+
 def test_connection() -> bool:
     """Verifica que la conexión con Jira funcione."""
     try:

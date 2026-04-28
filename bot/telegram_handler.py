@@ -2,7 +2,7 @@ import traceback
 import httpx
 from bot.config import AUTHORIZED_USER_IDS, TELEGRAM_BOT_TOKEN, JIRA_URL
 from bot.ai_extractor import extract_task, transcribe_audio
-from bot.jira_manager import create_task, transition_issue
+from bot.jira_manager import create_task, transition_issue, delete_issue
 from bot.jira_users import resolve_assignee
 from bot.reminder_scheduler import schedule_task_reminders
 from bot.strategy_agents import process_strategy_flow
@@ -126,6 +126,12 @@ def handle_message(update_data: dict) -> None:
                 _send_help(chat_id)
             elif lower == "/s" or lower.startswith("/s ") or lower.startswith("/s\n"):
                 _handle_strategy_flow(chat_id, message_id, user_name, stripped)
+            return
+
+        # ── Filtro 5: Eliminar issue por respuesta al bot ───────
+        reply = message.get("reply_to_message", {})
+        if reply and _is_delete_intent(text):
+            _handle_delete_reply(chat_id, message_id, reply)
             return
 
         # ── Procesar con IA ─────────────────────────────────────
@@ -322,6 +328,65 @@ def _handle_strategy_flow(chat_id: int, message_id: int, user_name: str, full_te
         text="\n".join(parts),
         reply_to_message_id=message_id,
     )
+
+
+def _is_delete_intent(text: str) -> bool:
+    """Detecta si el mensaje es una intención de eliminar una tarea."""
+    keywords = [
+        "elimina", "eliminar", "elimínalo", "elimínala", "elimina este",
+        "borra", "borrar", "bórralo", "bórrala", "borra este",
+        "cancela", "cancelar", "cancélalo", "cancélala",
+        "delete", "remove",
+        "no la registres", "no registres", "no la crees", "no crear",
+    ]
+    text_lower = text.strip().lower()
+    return any(kw in text_lower for kw in keywords)
+
+
+def _handle_delete_reply(chat_id: int, message_id: int, replied_msg: dict) -> None:
+    """
+    Elimina el issue de Jira referenciado en el mensaje al que se respondió.
+    Solo actúa si el mensaje original es del bot y contiene un KAN-XXX.
+    """
+    import re
+
+    # El mensaje respondido debe ser del bot (no tiene 'from' con is_bot explícito
+    # en grupos, pero sí podemos buscar el patrón KAN-XX en el texto)
+    replied_text = replied_msg.get("text", "")
+
+    # Buscar el key de Jira en el mensaje del bot (ej: KAN-85)
+    match = re.search(r'\b([A-Z]+-\d+)\b', replied_text)
+    if not match:
+        _send_message(
+            chat_id=chat_id,
+            text="⚠️ No encontré ninguna tarea de Jira en el mensaje al que respondiste.",
+            reply_to_message_id=message_id,
+        )
+        return
+
+    issue_key = match.group(1)
+    print(f"🗑️ Solicitud de eliminación de {issue_key} por respuesta al bot")
+
+    success = delete_issue(issue_key)
+
+    if success:
+        _send_message(
+            chat_id=chat_id,
+            text=f"🗑️ Tarea *{issue_key}* eliminada definitivamente de Jira.",
+            reply_to_message_id=message_id,
+            parse_mode="Markdown",
+        )
+    else:
+        _send_message(
+            chat_id=chat_id,
+            text=(
+                f"❌ No se pudo eliminar *{issue_key}*.\n"
+                f"Puede ser un problema de permisos o que ya no existe.\n"
+                f"Revisa los logs de Render para más detalle."
+            ),
+            reply_to_message_id=message_id,
+            parse_mode="Markdown",
+        )
 
 
 def _send_help(chat_id: int) -> None:
